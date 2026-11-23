@@ -3,19 +3,19 @@ import json
 import websockets
 from datetime import datetime
 
-# Binance BTC/USDT Trade Stream endpoint
+# Binance BTC/USDT Public Trade Stream endpoint
 BINANCE_WS_URL = "wss://stream.binance.com:9443/ws/btcusdt@trade"
 
 async def stream_live_crypto_ticks():
-    print("Binance WebSocket stream එකට සම්බන්ධ වෙමින් පවතී...")
+    print("Connecting to Binance WebSocket stream...")
     async with websockets.connect(BINANCE_WS_URL) as ws:
-        print("සම්බන්ධතාවය සාර්ථකයි! Live Ticks ලැබෙමින් පවතී:\n" + "-" * 50)
+        print("Connected successfully! Streaming live market ticks:\n" + "-" * 50)
         try:
             while True:
                 response = await ws.recv()
                 data = json.loads(response)
 
-                # Trade දත්ත Extract කිරීම
+                # Extract trade execution fields
                 timestamp = datetime.fromtimestamp(data['T'] / 1000).strftime('%H:%M:%S')
                 price = float(data['p'])
                 quantity = float(data['q'])
@@ -24,7 +24,7 @@ async def stream_live_crypto_ticks():
 
                 print(f"[{timestamp}] {side:4s} | Price: ${price:,.2f} | Size: {quantity:.4f} BTC")
         except websockets.exceptions.ConnectionClosed:
-            print("සම්බන්ධතාවය විසන්ධි විය. නැවත උත්සාහ කරන්න.")
+            print("WebSocket connection closed. Please attempt to reconnect.")
 
 if __name__ == "__main__":
     asyncio.run(stream_live_crypto_ticks())
