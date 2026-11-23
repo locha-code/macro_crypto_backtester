@@ -4,6 +4,12 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+# InstitutionalBacktester Import කිරීම (Fees, Slippage සහ Next-Open Execution නිවැරදිව ලබා ගැනීමට)
+try:
+    from src.backtester import InstitutionalBacktester
+except ImportError:
+    from backtester import InstitutionalBacktester
+
 # පිටුවේ මූලික සැකසුම (Wide Layout)
 st.set_page_config(
     page_title="Macro Quant Crypto Backtester",
@@ -14,42 +20,42 @@ st.set_page_config(
 st.title("🚀 Macro-Integrated BTC Quantitative Trading Dashboard")
 st.markdown("Global Liquidity (US M2 & Fed Rates) පදනම් කරගත් Quant Trading Strategy දෘශ්‍යමාන කිරීම.")
 
-# 1. දත්ත කියවීම
+# 1. දත්ත කියවීම සහ Institutional Backtest ධාවනය කිරීම
 @st.cache_data
-def load_data():
+def load_and_run_backtest():
     signals_df = pd.read_csv("data/processed/btc_strategy_signals.csv", index_col="Date", parse_dates=True)
-    trades_df = pd.read_csv("data/processed/macro_trade_log.csv")
-    return signals_df, trades_df
+    
+    # InstitutionalBacktester හරහා 0.1% Fee + 0.05% Slippage + Next-Open Execution ගණනය කිරීම
+    backtester = InstitutionalBacktester(initial_capital=10000.0, fee_pct=0.001, slippage_pct=0.0005)
+    results = backtester.run_backtest(signals_df)
+    
+    return signals_df, results
 
 try:
-    df, trades = load_data()
+    df, bt_results = load_and_run_backtest()
 except Exception as e:
-    st.error(f"දත්ත ගොනු කියවීමේදී දෝෂයක් ඇති විය: {e}")
+    st.error(f"දත්ත ගොනු කියවීමේදී හෝ Backtest කිරීමේදී දෝෂයක් ඇති විය: {e}")
     st.stop()
 
-# 2. Performance & Cumulative Returns ගණනය කිරීම
-df['BTC_Daily_Return'] = df['Close'].pct_change().fillna(0)
-
-# Technical Strategy Return
-# Crossover Signal එකට අනුව Position එක 0 හෝ 1 වේ
-df['Strategy_Daily_Return'] = df['Position'] * df['BTC_Daily_Return']
-
-# Equity Curves (ආරම්භක ප්‍රාග්ධනය $10,000)
+# 2. නිවැරදි Equity Curves ලබා ගැනීම (No Look-Ahead Bias, Fees Included)
 initial_capital = 10000.0
-df['Equity_Strategy'] = initial_capital * (1 + df['Strategy_Daily_Return']).cumprod()
-df['Equity_BuyHold'] = initial_capital * (1 + df['BTC_Daily_Return']).cumprod()
+df['Equity_Strategy'] = bt_results["Equity_Curve"]
+df['BTC_Daily_Return'] = df['Close'].pct_change().fillna(0)
+df['Equity_BuyHold'] = (df['Close'] / df['Close'].iloc[0]) * initial_capital
+trades = bt_results["Trades_DF"]
 
 # 3. KPI Metric Cards (ඉහළ පුවරුව)
 col1, col2, col3, col4 = st.columns(4)
 
-final_equity = df['Equity_Strategy'].iloc[-1]
+final_equity = bt_results["Ending Equity ($)"]
 buy_hold_final = df['Equity_BuyHold'].iloc[-1]
 total_trades = len(trades)
-avoided_trades = int(df['Tech_Buy'].sum() - df['Strategy_Buy'].sum())
+avoided_trades = int(df['Tech_Buy'].astype(bool).sum() - df['Strategy_Buy'].astype(bool).sum())
+max_dd = bt_results["Max Drawdown (%)"]
 
 with col1:
     st.metric(
-        label="Strategy Ending Capital",
+        label="Strategy Ending Capital (Net of Fees)",
         value=f"${final_equity:,.2f}",
         delta=f"{(final_equity - initial_capital) / initial_capital * 100:.1f}% Total"
     )
@@ -63,30 +69,26 @@ with col3:
     st.metric(
         label="Executed Trades",
         value=f"{total_trades}",
-        delta=f"-{avoided_trades} Filtered",
+        delta=f"-{avoided_trades} Macro Filtered",
         delta_color="inverse"
     )
 with col4:
-    # Max Drawdown
-    roll_max = df['Equity_Strategy'].cummax()
-    drawdown = (df['Equity_Strategy'] - roll_max) / roll_max
-    max_dd = drawdown.min() * 100
     st.metric(
         label="Max Drawdown (Risk)",
-        value=f"{max_dd:.2f}%",
-        delta="Controlled Risk",
+        value=f"-{abs(max_dd):.2f}%",
+        delta=f"Sharpe: {bt_results['Sharpe Ratio']}",
         delta_color="normal"
     )
 
 st.markdown("---")
 
 # 4. Interactive Chart 1: Equity Curve Comparison
-st.subheader("📊 Portfolio Growth: Strategy vs. Buy & Hold ($10,000 Initial)")
+st.subheader("📊 Portfolio Growth: Strategy vs. Buy & Hold ($10,000 Initial | 0.1% Fee + 0.05% Slippage)")
 fig_equity = go.Figure()
 
 fig_equity.add_trace(go.Scatter(
     x=df.index, y=df['Equity_Strategy'],
-    name="Macro + Quant Strategy",
+    name="Macro + Quant Strategy (Net)",
     line=dict(color='#00FFA3', width=2.5)
 ))
 
@@ -113,6 +115,7 @@ fig_price = make_subplots(
     shared_xaxes=True, 
     vertical_spacing=0.08,
     row_heights=[0.7, 0.3],
+    specs=[[{"secondary_y": False}], [{"secondary_y": True}]],
     subplot_titles=("BTC Price with Strategy Execution Points", "US M2 Money Supply & Fed Rate")
 )
 
@@ -122,8 +125,8 @@ fig_price.add_trace(
     row=1, col=1
 )
 
-# Buy Signals Markers
-buys = df[df['Strategy_Buy'] == True]
+# Buy Signals Markers (Safe Boolean Check)
+buys = df[df['Strategy_Buy'].astype(bool)]
 fig_price.add_trace(
     go.Scatter(
         x=buys.index, y=buys['Close'],
@@ -133,8 +136,8 @@ fig_price.add_trace(
     row=1, col=1
 )
 
-# Sell Signals Markers
-sells = df[df['Strategy_Sell'] == True]
+# Sell Signals Markers (Safe Boolean Check)
+sells = df[df['Strategy_Sell'].astype(bool)]
 fig_price.add_trace(
     go.Scatter(
         x=sells.index, y=sells['Close'],
@@ -144,17 +147,19 @@ fig_price.add_trace(
     row=1, col=1
 )
 
-# M2 Money Supply
-fig_price.add_trace(
-    go.Scatter(x=df.index, y=df['M2_Supply'], name="US M2 Supply (Billions)", line=dict(color='#34C759', width=1.5)),
-    row=2, col=1
-)
+# M2 Money Supply (Left Y-Axis)
+if 'M2_Supply' in df.columns:
+    fig_price.add_trace(
+        go.Scatter(x=df.index, y=df['M2_Supply'], name="US M2 Supply (Billions)", line=dict(color='#34C759', width=1.5)),
+        row=2, col=1, secondary_y=False
+    )
 
-# Fed Funds Rate (දෙවන y-axis එකක් ලෙස)
-fig_price.add_trace(
-    go.Scatter(x=df.index, y=df['Fed_Rate'], name="Fed Funds Rate (%)", line=dict(color='#FF9500', width=1.5, dash='dash')),
-    row=2, col=1
-)
+# Fed Funds Rate (Right Y-Axis)
+if 'Fed_Rate' in df.columns:
+    fig_price.add_trace(
+        go.Scatter(x=df.index, y=df['Fed_Rate'], name="Fed Funds Rate (%)", line=dict(color='#FF9500', width=1.5, dash='dash')),
+        row=2, col=1, secondary_y=True
+    )
 
 fig_price.update_layout(
     template="plotly_dark",
@@ -164,5 +169,5 @@ fig_price.update_layout(
 st.plotly_chart(fig_price, use_container_width=True)
 
 # 6. Trade Log Table
-st.subheader("📑 Macro Strategy Trade Log")
+st.subheader("📑 Macro Strategy Trade Log (Executed at Next Open with Fees & Slippage)")
 st.dataframe(trades, use_container_width=True)
