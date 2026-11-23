@@ -4,13 +4,13 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# InstitutionalBacktester Import කිරීම (Fees, Slippage සහ Next-Open Execution නිවැරදිව ලබා ගැනීමට)
+# Import InstitutionalBacktester to ensure accurate fees, slippage, and next-open execution
 try:
     from src.backtester import InstitutionalBacktester
 except ImportError:
     from backtester import InstitutionalBacktester
 
-# පිටුවේ මූලික සැකසුම (Wide Layout)
+# Page configuration (Wide Layout)
 st.set_page_config(
     page_title="Macro Quant Crypto Backtester",
     page_icon="📈",
@@ -18,14 +18,14 @@ st.set_page_config(
 )
 
 st.title("🚀 Macro-Integrated BTC Quantitative Trading Dashboard")
-st.markdown("Global Liquidity (US M2 & Fed Rates) පදනම් කරගත් Quant Trading Strategy දෘශ්‍යමාන කිරීම.")
+st.markdown("Visualizing an Institutional Quantitative Trading Strategy driven by Global Liquidity (US M2 Money Supply & Fed Funds Rate).")
 
-# 1. දත්ත කියවීම සහ Institutional Backtest ධාවනය කිරීම
+# 1. Load data and run institutional backtest
 @st.cache_data
 def load_and_run_backtest():
     signals_df = pd.read_csv("data/processed/btc_strategy_signals.csv", index_col="Date", parse_dates=True)
     
-    # InstitutionalBacktester හරහා 0.1% Fee + 0.05% Slippage + Next-Open Execution ගණනය කිරීම
+    # Run InstitutionalBacktester with 0.1% commission, 0.05% slippage, and next-open execution
     backtester = InstitutionalBacktester(initial_capital=10000.0, fee_pct=0.001, slippage_pct=0.0005)
     results = backtester.run_backtest(signals_df)
     
@@ -34,17 +34,17 @@ def load_and_run_backtest():
 try:
     df, bt_results = load_and_run_backtest()
 except Exception as e:
-    st.error(f"දත්ත ගොනු කියවීමේදී හෝ Backtest කිරීමේදී දෝෂයක් ඇති විය: {e}")
+    st.error(f"Error loading dataset or executing backtest: {e}")
     st.stop()
 
-# 2. නිවැරදි Equity Curves ලබා ගැනීම (No Look-Ahead Bias, Fees Included)
+# 2. Extract net equity curves (No Look-Ahead Bias, Fees & Slippage Included)
 initial_capital = 10000.0
 df['Equity_Strategy'] = bt_results["Equity_Curve"]
 df['BTC_Daily_Return'] = df['Close'].pct_change().fillna(0)
 df['Equity_BuyHold'] = (df['Close'] / df['Close'].iloc[0]) * initial_capital
 trades = bt_results["Trades_DF"]
 
-# 3. KPI Metric Cards (ඉහළ පුවරුව)
+# 3. KPI Metric Cards (Top Summary Bar)
 col1, col2, col3, col4 = st.columns(4)
 
 final_equity = bt_results["Ending Equity ($)"]
@@ -100,14 +100,14 @@ fig_equity.add_trace(go.Scatter(
 
 fig_equity.update_layout(
     template="plotly_dark",
-    xaxis_title="දිනය (Date)",
-    yaxis_title="ප්‍රාග්ධනය (USD)",
+    xaxis_title="Date",
+    yaxis_title="Portfolio Equity (USD)",
     height=450,
     margin=dict(l=20, r=20, t=30, b=20)
 )
 st.plotly_chart(fig_equity, use_container_width=True)
 
-# 5. Interactive Chart 2: BTC Price, Trades & Macro Liquidity Regime
+# 5. Interactive Chart 2: BTC Price, Trade Executions & Macro Liquidity Regime
 st.subheader("🧭 Market Regimes, Buy/Sell Signals & US M2 Liquidity")
 
 fig_price = make_subplots(
@@ -116,7 +116,7 @@ fig_price = make_subplots(
     vertical_spacing=0.08,
     row_heights=[0.7, 0.3],
     specs=[[{"secondary_y": False}], [{"secondary_y": True}]],
-    subplot_titles=("BTC Price with Strategy Execution Points", "US M2 Money Supply & Fed Rate")
+    subplot_titles=("BTC Price with Strategy Execution Points", "US M2 Money Supply & Fed Funds Rate")
 )
 
 # BTC Price Line
@@ -125,7 +125,7 @@ fig_price.add_trace(
     row=1, col=1
 )
 
-# Buy Signals Markers (Safe Boolean Check)
+# Buy Signal Markers (Safe Boolean Check)
 buys = df[df['Strategy_Buy'].astype(bool)]
 fig_price.add_trace(
     go.Scatter(
@@ -136,7 +136,7 @@ fig_price.add_trace(
     row=1, col=1
 )
 
-# Sell Signals Markers (Safe Boolean Check)
+# Sell Signal Markers (Safe Boolean Check)
 sells = df[df['Strategy_Sell'].astype(bool)]
 fig_price.add_trace(
     go.Scatter(
@@ -147,7 +147,7 @@ fig_price.add_trace(
     row=1, col=1
 )
 
-# M2 Money Supply (Left Y-Axis)
+# US M2 Money Supply (Left Y-Axis)
 if 'M2_Supply' in df.columns:
     fig_price.add_trace(
         go.Scatter(x=df.index, y=df['M2_Supply'], name="US M2 Supply (Billions)", line=dict(color='#34C759', width=1.5)),
