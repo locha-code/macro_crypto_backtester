@@ -6,10 +6,10 @@ def fetch_crypto_history(ticker="BTC-USD", years=5) -> pd.DataFrame:
     end_date = datetime.now()
     start_date = end_date - timedelta(days=years * 365)
 
-    print(f"බාගත කරමින්: {ticker} ({start_date.strftime('%Y-%m-%d')} සිට {end_date.strftime('%Y-%m-%d')} දක්වා)...")
+    print(f"Downloading {ticker} historical data ({start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')})...")
     df = yf.download(ticker, start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'), interval="1d")
 
-    # Column names පිරිසිදු කිරීම
+    # Flatten MultiIndex columns if returned by yfinance
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
@@ -19,7 +19,7 @@ def fetch_crypto_history(ticker="BTC-USD", years=5) -> pd.DataFrame:
 
     output_path = "data/raw/btc_historical_5y.csv"
     df.to_csv(output_path)
-    print(f"දත්ත ගබඩා කළා: {output_path} (සම්පූර්ණ පේළි: {len(df)})")
+    print(f"Data saved to {output_path} (Total rows: {len(df)})")
     return df
 
 if __name__ == "__main__":
